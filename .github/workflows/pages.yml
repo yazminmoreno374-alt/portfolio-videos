@@ -63,6 +63,12 @@ jobs:
           fetch 1kJ-0gWMhBy9HAXxQs6m898a9g49sAF7T site/videos/benito-fragmentos/viral.mp4
           fetch 1kzco9PTns8T0lVifjnIPT0wDOrZq1-oD site/videos/benito-fragmentos/ormuz.mp4
           find site -type f -printf '%p %k KB\n'
+          count="$(find site/videos -type f -name '*.mp4' | wc -l)"
+          echo "Published MP4 count: $count / 13"
+          if [ "$count" -ne 13 ]; then
+            echo "::error::Only $count of 13 videos were prepared; refusing incomplete deployment"
+            exit 1
+          fi
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
