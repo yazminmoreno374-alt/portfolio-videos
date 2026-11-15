@@ -1,4 +1,5 @@
 name: Build and publish portfolio videos
+
 on:
   workflow_dispatch:
   push:
@@ -6,71 +7,135 @@ on:
     paths:
       - '.github/workflows/pages.yml'
       - 'index.html'
+
 permissions:
   contents: read
   pages: write
   id-token: write
+
 concurrency:
   group: pages
   cancel-in-progress: true
+
 jobs:
   deploy:
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/configure-pages@v5
+
       - name: Install download and video tools
-        run: |
-          python -m pip install --quiet gdown
-          ffmpeg -version | head -n 1
-      - name: Download publicly shared source videos and optimize
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p site/videos/marcas site/videos/benito-fragmentos
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install --quiet --disable-pip-version-check gdown
+          gdown --version
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
+
+      - name: Download, validate and optimize all source videos
+        shell: bash
+        run: |
+          set -u -o pipefail
+          mkdir -p site/videos/otros site/videos/marcas site/videos/benito-fragmentos
           cp index.html site/index.html
+          failures=0
+
           fetch() {
-            local id="$1" target="$2"
+            local id="$1"
+            local target="$2"
             local temp
-            temp="$(mktemp --suffix=.mp4)"
-            if ! gdown --id "$id" -O "$temp" --quiet; then
-              echo "::warning::Could not download $target; leaving it unpublished"
+            temp="$(mktemp --suffix=.source)"
+
+            echo "::group::Preparing $target"
+            if ! gdown "$id" -O "$temp" --quiet --retries 3 --timeout 90; then
+              echo "::error::Download failed for $target (Drive ID: $id)"
+              failures=$((failures + 1))
               rm -f "$temp"
-              return 0
+              echo "::endgroup::"
+              return
             fi
-            if ! ffmpeg -nostdin -hide_banner -loglevel error -y -i "$temp" -map 0:v:0 -map '0:a:0?' -c:v libx264 -preset veryfast -crf 28 -vf "scale='min(1280,iw)':-2" -pix_fmt yuv420p -c:a aac -b:a 96k -movflags +faststart "$target"; then
-              echo "::warning::Could not transcode $target"
-              rm -f "$target"
+
+            local bytes
+            bytes="$(stat -c '%s' "$temp")"
+            echo "Downloaded bytes: $bytes"
+            if [ "$bytes" -lt 10240 ]; then
+              echo "::error::Downloaded file for $target is unexpectedly small ($bytes bytes)"
+              failures=$((failures + 1))
+              rm -f "$temp"
+              echo "::endgroup::"
+              return
+            fi
+
+            if ! ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,width,height,duration -of default=noprint_wrappers=1 "$temp"; then
+              echo "::error::Downloaded content for $target is not a readable video"
+              failures=$((failures + 1))
+              rm -f "$temp"
+              echo "::endgroup::"
+              return
+            fi
+
+            mkdir -p "$(dirname "$target")"
+            if ! ffmpeg -nostdin -hide_banner -loglevel error -y               -i "$temp"               -map 0:v:0 -map '0:a:0?'               -c:v libx264 -preset fast -crf 27               -vf "scale='min(1280,iw)':-2:flags=lanczos"               -pix_fmt yuv420p               -c:a aac -b:a 96k               -movflags +faststart               "$target"; then
+              echo "::error::FFmpeg failed for $target"
+              failures=$((failures + 1))
+              rm -f "$temp" "$target"
+              echo "::endgroup::"
+              return
             fi
             rm -f "$temp"
+
+            if ! ffprobe -v error               -select_streams v:0               -show_entries stream=codec_name,pix_fmt,width,height               -of default=noprint_wrappers=1               "$target"; then
+              echo "::error::Output validation failed for $target"
+              failures=$((failures + 1))
+              rm -f "$target"
+              echo "::endgroup::"
+              return
+            fi
+            echo "Published $(stat -c '%s' "$target") bytes to $target"
+            echo "::endgroup::"
           }
-          mkdir -p site/videos/otros
+
           fetch 1IxBoIVdiA5Ns9uySned17mqcvsUQ1G7Q site/videos/otros/sep28-a.mp4
           fetch 1NGWrrx4wcs21u83eESP4q4_-y3ZqD6w- site/videos/otros/sep30.mp4
           fetch 1xVue_TxZ1YHXMNibc3I37yPbTPL4ypO0 site/videos/otros/sep28-b.mp4
           fetch 1PhouweDPdOBSDHGoWVJPDQ5FTZezZvjj site/videos/otros/oct16.mp4
+
           fetch 1vwZ5cudU7rPRX1LXBPdVo1LZsgN_RMix site/videos/marcas/minsis.mp4
           fetch 1NSVQOAdZBtTL2Qjb-l_lOaQIHc9rLjhQ site/videos/marcas/zaru.mp4
           fetch 1U7oDG8iPb6dGdsKsi5FVAa0RPQ4qDGDg site/videos/marcas/smarketing.mp4
           fetch 1aCt90Z5WIPtY2DiBWs3essgODzgwXMa- site/videos/marcas/casita.mp4
+
           fetch 19Wy0dyV2yVSzhMTD3svLVIC7k2m7vuFJ site/videos/benito-fragmentos/mexico.mp4
           fetch 17_oiQzEXxhAE45vufIw5IrTeEf7v1C8S site/videos/benito-fragmentos/ia.mp4
           fetch 1cYIEP-AVYMvv_WaLlsQU_cqCL9F4dyUd site/videos/benito-fragmentos/bolivia.mp4
           fetch 1kJ-0gWMhBy9HAXxQs6m898a9g49sAF7T site/videos/benito-fragmentos/viral.mp4
           fetch 1kzco9PTns8T0lVifjnIPT0wDOrZq1-oD site/videos/benito-fragmentos/ormuz.mp4
-          find site -type f -printf '%p %k KB\n'
+
+          find site -type f -printf '%p %s bytes\n' | sort
           count="$(find site/videos -type f -name '*.mp4' | wc -l)"
-          echo "Published MP4 count: $count / 13"
-          if [ "$count" -ne 13 ]; then
-            echo "::error::Only $count of 13 videos were prepared; refusing incomplete deployment"
+          total_bytes="$(find site/videos -type f -name '*.mp4' -printf '%s\n' | awk '{sum += $1} END {print sum + 0}')"
+          echo "Validated MP4 count: $count / 13"
+          echo "Total published video bytes: $total_bytes"
+
+          if [ "$failures" -ne 0 ] || [ "$count" -ne 13 ]; then
+            echo "::error::$failures preparation step(s) failed; only $count of 13 videos are valid"
             exit 1
           fi
-      - uses: actions/upload-pages-artifact@v3
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
           path: site
-      - id: deployment
+
+      - name: Deploy to GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4
