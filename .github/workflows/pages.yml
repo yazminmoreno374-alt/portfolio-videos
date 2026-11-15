@@ -48,6 +48,12 @@ jobs:
             fi
             rm -f "$temp"
           }
+          mkdir -p site/videos/otros
+          fetch 1IxBoIVdiA5Ns9uySned17mqcvsUQ1G7Q site/videos/otros/sep28-a.mp4
+          fetch 1NGWrrx4wcs21u83eESP4q4_-y3ZqD6w- site/videos/otros/sep30.mp4
+          fetch 1xVue_TxZ1YHXMNibc3I37yPbTPL4ypO0 site/videos/otros/sep28-b.mp4
+          fetch 1PhouweDPdOBSDHGoWVJPDQ5FTZezZvjj site/videos/otros/oct16.mp4
+          fetch 1vwZ5cudU7rPRX1LXBPdVo1LZsgN_RMix site/videos/marcas/minsis.mp4
           fetch 1NSVQOAdZBtTL2Qjb-l_lOaQIHc9rLjhQ site/videos/marcas/zaru.mp4
           fetch 1U7oDG8iPb6dGdsKsi5FVAa0RPQ4qDGDg site/videos/marcas/smarketing.mp4
           fetch 1aCt90Z5WIPtY2DiBWs3essgODzgwXMa- site/videos/marcas/casita.mp4
